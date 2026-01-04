@@ -3,79 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Pro-Tune</title>
+    <title>BMW 4.20i Precision Telemetry</title>
     <style>
-        body { background: #000; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100vh; padding: 20px; box-sizing: border-box; }
+        body { background: #050505; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100vh; padding: 20px; box-sizing: border-box; }
         
-        /* Kadran Alanı */
-        .gauge-section { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .rpm-val { font-size: 6rem; font-weight: 900; color: #e74c3c; line-height: 1; text-shadow: 0 0 30px rgba(231, 76, 60, 0.5); }
-        .unit { color: #555; letter-spacing: 5px; font-weight: bold; }
+        /* Üst Telemetri Çubuğu */
+        .live-telemetry { width: 100%; background: rgba(231, 76, 60, 0.1); border: 1px solid #e74c3c; padding: 10px; border-radius: 12px; text-align: center; }
+        .angle-val { font-size: 2.5rem; font-weight: 900; color: #e74c3c; font-family: monospace; }
+        .angle-label { font-size: 10px; color: #888; letter-spacing: 2px; text-transform: uppercase; }
 
-        /* Ayar Paneli */
-        .settings-panel { width: 100%; background: #111; padding: 20px; border-radius: 20px; border: 1px solid #333; box-sizing: border-box; }
-        .slider-group { margin-bottom: 15px; }
-        label { display: block; font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        /* Devir Saati */
+        .gauge-section { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .rpm-val { font-size: 7rem; font-weight: 900; color: #fff; line-height: 1; }
+        .unit { color: #e74c3c; letter-spacing: 4px; font-weight: bold; font-size: 14px; }
+
+        /* Kalibrasyon Paneli */
+        .settings-panel { width: 100%; background: #111; padding: 15px; border-radius: 20px; border: 1px solid #333; }
+        .slider-group { margin-bottom: 12px; }
+        label { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 4px; }
         input[type=range] { width: 100%; accent-color: #e74c3c; cursor: pointer; }
         
-        .debug-bar { font-family: monospace; font-size: 11px; color: #00ff00; margin-top: 10px; border-top: 1px solid #222; padding-top: 10px; }
-        
-        button { width: 100%; padding: 20px; border-radius: 50px; border: none; font-weight: bold; font-size: 1.2rem; background: #fff; color: #000; cursor: pointer; transition: 0.3s; }
-        button:active { transform: scale(0.95); background: #eee; }
+        .debug-msg { font-family: monospace; font-size: 10px; color: #00ff00; margin-top: 8px; border-top: 1px solid #222; padding-top: 8px; }
+        button { width: 100%; padding: 18px; border-radius: 50px; border: none; font-weight: bold; font-size: 1.1rem; background: #fff; color: #000; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <div class="gauge-section">
-        <div class="rpm-val" id="rpmDisp">0</div>
-        <div class="unit">1/MIN x1000</div>
+    <div class="live-telemetry">
+        <div class="angle-label">Anlık Pedal Açısı</div>
+        <div class="angle-val" id="liveAngle">0.0°</div>
     </div>
 
-    <div class="settings-panel" id="uiPanel">
+    <div class="gauge-section">
+        <div class="rpm-val" id="rpmDisp">0</div>
+        <div class="unit">RPM x1000</div>
+    </div>
+
+    <div class="settings-panel">
         <div class="slider-group">
-            <label><span>BAŞLANGIÇ (RÖLANTİ):</span> <span id="minLabel">115°</span></label>
+            <label><span>RÖLANTİ EŞİĞİ (MIN):</span> <span id="minLabel">115°</span></label>
             <input type="range" id="minAngle" min="0" max="180" value="115">
         </div>
         <div class="slider-group">
-            <label><span>BİTİŞ (TAM GAZ):</span> <span id="maxLabel">180°</span></label>
+            <label><span>TAM GAZ EŞİĞİ (MAX):</span> <span id="maxLabel">180°</span></label>
             <input type="range" id="maxAngle" min="0" max="360" value="180">
         </div>
         
-        <div class="debug-bar" id="logOut">SİSTEM HAZIR. BORAN GÜNGÖR İÇİN BEKLENİYOR.</div>
-        <button id="initBtn">SİSTEMİ VE SESİ BAŞLAT</button>
+        <div class="debug-msg" id="logOut">Sistem Boran Güngör İçin Hazır...</div>
+        <button id="initBtn">SİSTEMİ BAŞLAT</button>
     </div>
 
 <script>
 let audioCtx, source, gainNode, filter;
 let smoothedRpm = 0, lastRpm = 0;
 
-// Elementler
 const minInput = document.getElementById('minAngle');
 const maxInput = document.getElementById('maxAngle');
 const minLabel = document.getElementById('minLabel');
 const maxLabel = document.getElementById('maxLabel');
 const rpmDisp = document.getElementById('rpmDisp');
+const liveAngleDisp = document.getElementById('liveAngle');
 const logOut = document.getElementById('logOut');
 const initBtn = document.getElementById('initBtn');
 
-// UI Güncelleme
 minInput.oninput = () => minLabel.innerText = minInput.value + "°";
 maxInput.oninput = () => maxLabel.innerText = maxInput.value + "°";
 
-function writeLog(m) { logOut.innerText = `> ${m}`; }
-
 async function startProject() {
     try {
-        // İzinler ve AudioContext
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             await DeviceOrientationEvent.requestPermission();
         }
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
         await audioCtx.resume();
 
-        writeLog("SES DOSYASI YÜKLENİYOR...");
-        const response = await fetch('./motor_sesi.WAV?v=' + Date.now()); //
-        if (!response.ok) throw new Error("motor_sesi.WAV bulunamadı.");
+        logOut.innerText = "> SES YÜKLENİYOR...";
+        const response = await fetch('./motor_sesi.WAV?v=' + Date.now());
+        if (!response.ok) throw new Error("Dosya bulunamadı.");
         
         const audioBuffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
         
@@ -90,37 +94,35 @@ async function startProject() {
         source.start(0);
 
         initBtn.style.display = 'none';
-        writeLog("SİSTEM ÇALIŞIYOR. PEDALI HAREKET ETTİRİN.");
+        logOut.innerText = "> SİSTEM ÇALIŞIYOR.";
 
-        // Sensör Döngüsü
         window.addEventListener('deviceorientation', (e) => {
-            let current = e.beta; 
+            let current = e.beta; // Ham açı verisi
+            liveAngleDisp.innerText = current.toFixed(1) + "°";
+
             let minVal = parseFloat(minInput.value);
             let maxVal = parseFloat(maxInput.value);
 
-            // Dinamik Eşleme (Mapping)
-            // $$RPM_{target} = \frac{Açı_{mevcut} - Açı_{min}}{Açı_{max} - Açı_{min}}$$
             let target = (current - minVal) / (maxVal - minVal);
             target = Math.max(0, Math.min(1, target));
 
-            // ASİMETRİK TEPKİ: Gaza basış hızlı, çekiş ağır
+            // ASİMETRİK TEPKİ: Hızlı yükseliş, gerçekçi süzülerek düşüş
             if (target > smoothedRpm) {
-                smoothedRpm += (target - smoothedRpm) * 0.22; // Hızlı çıkış
+                smoothedRpm += (target - smoothedRpm) * 0.22;
             } else {
-                smoothedRpm += (target - smoothedRpm) * 0.035; // Yavaş düşüş (Motor ağırlığı)
+                smoothedRpm += (target - smoothedRpm) * 0.035; 
             }
 
             const t = audioCtx.currentTime;
 
-            // Pop & Bang Algılayıcı (Hızlı pedal bırakma)
-            if (lastRpm - smoothedRpm > 0.07) {
+            // Pop & Bang (Ayağı gazdan çekince patlama)
+            if (lastRpm - smoothedRpm > 0.075) {
                 gainNode.gain.cancelScheduledValues(t);
-                gainNode.gain.setValueAtTime(1.4, t);
+                gainNode.gain.setValueAtTime(1.45, t);
                 gainNode.gain.exponentialRampToValueAtTime(0.3 + (smoothedRpm * 0.7), t + 0.15);
             }
             lastRpm = smoothedRpm;
 
-            // Ses Motoru Güncelleme
             source.playbackRate.setTargetAtTime(0.8 + (smoothedRpm * 3.4), t, 0.02);
             if (gainNode.gain.value < 1.1) {
                 gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
@@ -131,7 +133,7 @@ async function startProject() {
         });
 
     } catch (err) {
-        writeLog("HATA: " + err.message);
+        logOut.innerText = "HATA: " + err.message;
     }
 }
 
