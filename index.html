@@ -3,82 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Audio Fix</title>
+    <title>BMW 4.20i AI-Logic Sync</title>
     <style>
-        body { background: #000; margin: 0; overflow: hidden; font-family: sans-serif; }
+        body { background: #000; margin: 0; overflow: hidden; font-family: sans-serif; color: white; }
         video { position: absolute; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; }
-        .debug-overlay { 
-            position: absolute; top: 10px; left: 10px; z-index: 1000; 
-            background: rgba(0,0,0,0.8); color: #00ff00; padding: 10px; 
-            font-family: monospace; font-size: 12px; pointer-events: none;
-        }
-        #startBtn { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 2000; padding: 25px 50px; background: #e74c3c; color: #fff;
-            font-weight: bold; border: none; border-radius: 10px; cursor: pointer;
-        }
+        .hud { position: absolute; top: 10px; left: 10px; z-index: 1000; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px; font-size: 12px; border: 1px solid #444; }
+        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2000; padding: 20px 40px; background: #e74c3c; color: #fff; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; }
+        #tracker { position: absolute; border: 2px solid #2ecc71; z-index: 500; pointer-events: none; }
     </style>
 </head>
 <body>
 
-    <div class="debug-overlay" id="status">DURUM: BEKLENİYOR...</div>
-    <button id="startBtn">SİSTEMİ VE SESİ BAŞLAT</button>
+    <div class="hud" id="debug">DURUM: BEKLENİYOR...</div>
+    <button id="startBtn">SİSTEMİ BAŞLAT</button>
+    <div id="tracker" style="width: 150px; height: 300px; right: 10%; top: 20%;"></div>
     <video id="liveCam" autoplay muted playsinline></video>
 
 <script>
-let audioCtx, source, gainNode, filter;
-const status = document.getElementById('status');
-const startBtn = document.getElementById('startBtn');
+let audioCtx, osc, mainGain, filter;
+let smoothedRpm = 0, lastRpm = 0;
 const video = document.getElementById('liveCam');
+const debug = document.getElementById('debug');
+const startBtn = document.getElementById('startBtn');
 
-async function startSystem() {
-    status.innerHTML = "KAMERA BAŞLATILIYOR...";
+// 1. YAPAY MOTOR SESİ (Dosya gerektirmez!)
+function createSyntheticEngine() {
+    osc = audioCtx.createOscillator();
+    const subOsc = audioCtx.createOscillator();
     
+    osc.type = 'sawtooth'; // BMW'nin yırtıcı sesi için testere dişi dalga
+    subOsc.type = 'square'; // Alt devirlerde tokluk için kare dalga
+    
+    mainGain = audioCtx.createGain();
+    filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+
+    osc.connect(filter);
+    subOsc.connect(filter);
+    filter.connect(mainGain);
+    mainGain.connect(audioCtx.destination);
+
+    osc.start();
+    subOsc.start();
+    mainGain.gain.setValueAtTime(0, audioCtx.currentTime);
+}
+
+// 2. SİSTEMİ BAŞLAT
+async function startSystem() {
     try {
-        // 1. Kamera Erişimi
+        debug.innerHTML = "KAMERA AÇILIYOR...";
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         video.srcObject = stream;
 
-        // 2. Audio Context (Tıklama sonrası başlatılması şart)
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-        
-        // iOS/Safari için sessizlik kilidini kırma
-        if (audioCtx.state === 'suspended') {
-            await audioCtx.resume();
-        }
+        await audioCtx.resume();
 
-        status.innerHTML = "SES DOSYASI YÜKLENİYOR...";
+        // Sentetik motoru kur
+        createSyntheticEngine();
         
-        // GitHub'daki büyük harf WAV dosyasını çekiyoruz
-        const response = await fetch('./motor_sesi.WAV?v=' + Date.now());
-        
-        if (!response.ok) {
-            throw new Error("Ses dosyası bulunamadı! GitHub'da ismin 'motor_sesi.WAV' olduğundan emin olun.");
-        }
+        // Ses dosyasını arka planda yüklemeyi dene
+        debug.innerHTML = "DOSYA DENENİYOR...";
+        fetch('./motor_sesi.WAV').then(r => r.ok ? debug.innerHTML = "DOSYA YÜKLENDİ" : debug.innerHTML = "SENTETİK MOD AKTİF");
 
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-        source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.loop = true;
-
-        gainNode = audioCtx.createGain();
-        filter = audioCtx.createBiquadFilter();
-        
-        source.connect(filter);
-        filter.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        
-        source.start(0);
-        
-        status.innerHTML = "SİSTEM AKTİF - SES ÇALIYOR";
         startBtn.style.display = 'none';
-        
+        requestAnimationFrame(update);
     } catch (err) {
-        status.innerHTML = `<span style="color:red">HATA: ${err.message}</span>`;
-        console.error(err);
+        debug.innerHTML = "HATA: " + err.message;
     }
+}
+
+function update() {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 100; canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+        
+        // Ekranın sağ tarafını (RPM Barı) analiz et
+        ctx.drawImage(video, video.videoWidth * 0.6, 0, video.videoWidth * 0.4, video.videoHeight, 0, 0, 100, 100);
+        const data = ctx.getImageData(0, 0, 100, 100).data;
+        
+        let highestRed = 100;
+        for (let i = 0; i < data.length; i += 16) {
+            if (data[i] > 170 && data[i] > data[i+1] * 1.5) { // BMW Kırmızısı
+                const y = Math.floor((i / 4) / 100);
+                if (y < highestRed) highestRed = y;
+            }
+        }
+
+        let rpm = 1 - (highestRed / 100);
+        smoothedRpm += (rpm - smoothedRpm) * 0.2;
+
+        // Sentetik Sesi Güncelle
+        const t = audioCtx.currentTime;
+        const freq = 60 + (smoothedRpm * 350); // Rölantiden 400Hz'e kadar
+        osc.frequency.setTargetAtTime(freq, t, 0.02);
+        filter.frequency.setTargetAtTime(500 + (smoothedRpm * 8000), t, 0.02);
+        mainGain.gain.setTargetAtTime(0.2 + (smoothedRpm * 0.5), t, 0.02);
+
+        debug.innerHTML = `BMW 4.20i | RPM: %${Math.round(smoothedRpm * 100)}`;
+    }
+    requestAnimationFrame(update);
 }
 
 startBtn.addEventListener('click', startSystem);
