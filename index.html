@@ -3,93 +3,139 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Precision Pedal</title>
+    <title>BMW 4.20i Pro-Tune</title>
     <style>
-        body { background: #000; margin: 0; overflow: hidden; font-family: sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        .monitor { width: 85%; background: #111; padding: 25px; border-radius: 15px; border: 2px solid #333; }
-        .rpm-display { font-size: 4rem; font-weight: 900; color: #e74c3c; text-align: center; margin-bottom: 10px; }
-        .angle-info { text-align: center; color: #888; font-family: monospace; margin-bottom: 20px; }
-        #log { font-size: 11px; color: #00ff00; height: 60px; overflow: hidden; border-top: 1px solid #222; pt: 10px; }
-        button { width: 100%; padding: 20px; border-radius: 10px; border: none; font-weight: bold; font-size: 1.1rem; background: #e74c3c; color: #fff; cursor: pointer; }
+        body { background: #000; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100vh; padding: 20px; box-sizing: border-box; }
+        
+        /* Kadran Alanı */
+        .gauge-section { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .rpm-val { font-size: 6rem; font-weight: 900; color: #e74c3c; line-height: 1; text-shadow: 0 0 30px rgba(231, 76, 60, 0.5); }
+        .unit { color: #555; letter-spacing: 5px; font-weight: bold; }
+
+        /* Ayar Paneli */
+        .settings-panel { width: 100%; background: #111; padding: 20px; border-radius: 20px; border: 1px solid #333; box-sizing: border-box; }
+        .slider-group { margin-bottom: 15px; }
+        label { display: block; font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        input[type=range] { width: 100%; accent-color: #e74c3c; cursor: pointer; }
+        
+        .debug-bar { font-family: monospace; font-size: 11px; color: #00ff00; margin-top: 10px; border-top: 1px solid #222; padding-top: 10px; }
+        
+        button { width: 100%; padding: 20px; border-radius: 50px; border: none; font-weight: bold; font-size: 1.2rem; background: #fff; color: #000; cursor: pointer; transition: 0.3s; }
+        button:active { transform: scale(0.95); background: #eee; }
     </style>
 </head>
 <body>
 
-    <div class="monitor">
-        <div class="rpm-display" id="rpmText">0</div>
-        <div class="angle-info" id="angleText">Açı: 0°</div>
-        <div id="log">SİSTEM: BAŞLATILMAYI BEKLİYOR...</div>
-        <button id="startBtn">SİSTEMİ VE SESİ BAŞLAT</button>
+    <div class="gauge-section">
+        <div class="rpm-val" id="rpmDisp">0</div>
+        <div class="unit">1/MIN x1000</div>
+    </div>
+
+    <div class="settings-panel" id="uiPanel">
+        <div class="slider-group">
+            <label><span>BAŞLANGIÇ (RÖLANTİ):</span> <span id="minLabel">115°</span></label>
+            <input type="range" id="minAngle" min="0" max="180" value="115">
+        </div>
+        <div class="slider-group">
+            <label><span>BİTİŞ (TAM GAZ):</span> <span id="maxLabel">180°</span></label>
+            <input type="range" id="maxAngle" min="0" max="360" value="180">
+        </div>
+        
+        <div class="debug-bar" id="logOut">SİSTEM HAZIR. BORAN GÜNGÖR İÇİN BEKLENİYOR.</div>
+        <button id="initBtn">SİSTEMİ VE SESİ BAŞLAT</button>
     </div>
 
 <script>
 let audioCtx, source, gainNode, filter;
 let smoothedRpm = 0, lastRpm = 0;
-const log = document.getElementById('log');
-const rpmText = document.getElementById('rpmText');
-const angleText = document.getElementById('angleText');
 
-function addLog(m) { log.innerHTML = `> ${m}<br>${log.innerHTML}`; }
+// Elementler
+const minInput = document.getElementById('minAngle');
+const maxInput = document.getElementById('maxAngle');
+const minLabel = document.getElementById('minLabel');
+const maxLabel = document.getElementById('maxLabel');
+const rpmDisp = document.getElementById('rpmDisp');
+const logOut = document.getElementById('logOut');
+const initBtn = document.getElementById('initBtn');
 
-async function init() {
+// UI Güncelleme
+minInput.oninput = () => minLabel.innerText = minInput.value + "°";
+maxInput.oninput = () => maxLabel.innerText = maxInput.value + "°";
+
+function writeLog(m) { logOut.innerText = `> ${m}`; }
+
+async function startProject() {
     try {
-        addLog("BAŞLATILIYOR...");
-        
-        // Sensör İzni
-        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission !== 'granted') throw new Error("İzin reddedildi.");
+        // İzinler ve AudioContext
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            await DeviceOrientationEvent.requestPermission();
         }
-
-        // Ses Motoru
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
         await audioCtx.resume();
 
-        // Dosya Yükleme
-        addLog("DOSYA ÇEKİLİYOR: motor_sesi.WAV...");
-        const resp = await fetch('./motor_sesi.WAV?t=' + Date.now());
-        if (!resp.ok) throw new Error("Dosya bulunamadı! (404)");
+        writeLog("SES DOSYASI YÜKLENİYOR...");
+        const response = await fetch('./motor_sesi.WAV?v=' + Date.now()); //
+        if (!response.ok) throw new Error("motor_sesi.WAV bulunamadı.");
         
-        const data = await resp.arrayBuffer();
-        const buffer = await audioCtx.decodeAudioData(data);
-        addLog("DOSYA ÇÖZÜLDÜ ✓");
-
-        // Bağlantılar
+        const audioBuffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+        
         source = audioCtx.createBufferSource();
-        source.buffer = buffer;
+        source.buffer = audioBuffer;
         source.loop = true;
+        
         gainNode = audioCtx.createGain();
-        filter = audioCtx.createBiquadFilter();
+        filter = audioCtx.createBiquadFilter(); filter.type = "lowpass";
         
         source.connect(filter); filter.connect(gainNode); gainNode.connect(audioCtx.destination);
         source.start(0);
 
-        document.getElementById('startBtn').style.display = 'none';
+        initBtn.style.display = 'none';
+        writeLog("SİSTEM ÇALIŞIYOR. PEDALI HAREKET ETTİRİN.");
+
+        // Sensör Döngüsü
         window.addEventListener('deviceorientation', (e) => {
-            let angle = e.beta; // Pedal eğimi
-            angleText.innerText = `Açı: ${Math.round(angle)}°`;
+            let current = e.beta; 
+            let minVal = parseFloat(minInput.value);
+            let maxVal = parseFloat(maxInput.value);
 
-            // Boran'ın istediği aralık: 115 - 180 derece
-            let rpmTarget = (angle - 115) / (180 - 115);
-            rpmTarget = Math.max(0, Math.min(1, rpmTarget));
+            // Dinamik Eşleme (Mapping)
+            // $$RPM_{target} = \frac{Açı_{mevcut} - Açı_{min}}{Açı_{max} - Açı_{min}}$$
+            let target = (current - minVal) / (maxVal - minVal);
+            target = Math.max(0, Math.min(1, target));
 
-            smoothedRpm += (rpmTarget - smoothedRpm) * 0.15;
-            
+            // ASİMETRİK TEPKİ: Gaza basış hızlı, çekiş ağır
+            if (target > smoothedRpm) {
+                smoothedRpm += (target - smoothedRpm) * 0.22; // Hızlı çıkış
+            } else {
+                smoothedRpm += (target - smoothedRpm) * 0.035; // Yavaş düşüş (Motor ağırlığı)
+            }
+
             const t = audioCtx.currentTime;
+
+            // Pop & Bang Algılayıcı (Hızlı pedal bırakma)
+            if (lastRpm - smoothedRpm > 0.07) {
+                gainNode.gain.cancelScheduledValues(t);
+                gainNode.gain.setValueAtTime(1.4, t);
+                gainNode.gain.exponentialRampToValueAtTime(0.3 + (smoothedRpm * 0.7), t + 0.15);
+            }
+            lastRpm = smoothedRpm;
+
+            // Ses Motoru Güncelleme
             source.playbackRate.setTargetAtTime(0.8 + (smoothedRpm * 3.4), t, 0.02);
-            gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
+            if (gainNode.gain.value < 1.1) {
+                gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
+            }
+            filter.frequency.setTargetAtTime(1000 + (smoothedRpm * 19000), t, 0.02);
             
-            rpmText.innerText = Math.floor(smoothedRpm * 7000); // 7000 RPM göstergesi
+            rpmDisp.innerText = Math.floor(smoothedRpm * 7);
         });
 
-        addLog("SİSTEM ÇALIŞIYOR!");
-
     } catch (err) {
-        addLog("HATA: " + err.message);
+        writeLog("HATA: " + err.message);
     }
 }
 
-document.getElementById('startBtn').addEventListener('click', init);
+initBtn.addEventListener('click', startProject);
 </script>
 </body>
 </html>
