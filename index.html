@@ -3,48 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Path-Sync Pro</title>
+    <title>BMW 4.20i Vision-Sync</title>
     <style>
         body { background: #000; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-        video { position: absolute; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; }
-        canvas#drawCanvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; touch-action: none; }
-        
-        .ui-layer { position: absolute; bottom: 20px; z-index: 100; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
-        button { pointer-events: auto; padding: 15px 35px; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; font-size: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        #startBtn { background: #3498db; color: white; }
-        #lockBtn { background: #2ecc71; color: white; display: none; }
-        
-        .status-box { position: absolute; top: 20px; left: 20px; z-index: 100; color: #fff; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 8px; border-left: 4px solid #e74c3c; font-family: monospace; pointer-events: none; }
+        video { width: 100vw; height: 100vh; object-fit: cover; }
+        .hud { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.85); padding: 20px; border-radius: 12px; border-right: 5px solid #e74c3c; color: #fff; z-index: 100; min-width: 150px; }
+        #startBtn { position: absolute; z-index: 200; padding: 20px 60px; background: #fff; color: #000; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; font-size: 1.3rem; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
+        canvas#debugCanvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; opacity: 0.4; }
     </style>
 </head>
 <body>
 
-    <div class="status-box" id="status">ADIM 1: 'KAMERAYI AÇ' butonuna bas.</div>
+    <button id="startBtn">SİSTEMİ VE MOTORU BAŞLAT</button>
     
-    <div class="ui-layer">
-        <button id="startBtn">KAMERAYI VE SESİ AÇ</button>
-        <button id="lockBtn">YOLU KİLİTLE VE SENKRONİZE ET</button>
+    <div class="hud">
+        <div style="font-size: 11px; color: #888; letter-spacing: 1px;">BMW 4.20i AUTO-TRACKER</div>
+        <div id="rpmText" style="font-size: 28px; font-weight: 900; color: #e74c3c; margin-top: 5px;">%0 RPM</div>
     </div>
 
     <video id="liveCam" autoplay muted playsinline></video>
-    <canvas id="drawCanvas"></canvas>
+    <canvas id="debugCanvas"></canvas>
 
 <script>
 let audioCtx, source, gainNode, filter;
-let rawPoints = [];
-let pathPoints = []; 
-let isDrawing = false;
-let isLocked = false;
-let lastRpmValue = 0;
-
+let smoothedRpm = 0, lastRpm = 0;
 const video = document.getElementById('liveCam');
-const drawCanvas = document.getElementById('drawCanvas');
-const dCtx = drawCanvas.getContext('2d');
-const status = document.getElementById('status');
+const debugCanvas = document.getElementById('debugCanvas');
+const dCtx = debugCanvas.getContext('2d', { alpha: false });
+const rpmText = document.getElementById('rpmText');
 const startBtn = document.getElementById('startBtn');
-const lockBtn = document.getElementById('lockBtn');
 
-// 1. KAMERA VE SESİ BAŞLAT
 async function initEngine() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -60,135 +48,70 @@ async function initEngine() {
         source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.loop = true;
-        
-        filter = audioCtx.createBiquadFilter();
-        filter.type = "lowpass";
+
+        filter = audioCtx.createBiquadFilter(); filter.type = "lowpass";
         gainNode = audioCtx.createGain();
 
-        source.connect(filter);
-        filter.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        source.connect(filter); filter.connect(gainNode); gainNode.connect(audioCtx.destination);
         source.start(0);
-
         startBtn.style.display = 'none';
-        status.innerText = "ADIM 2: Ekranda devir saatinin üzerinden hattı çiz.";
-        setupDrawing();
-    } catch (err) { alert("Hata: " + err); }
+        updateLoop();
+    } catch (err) { alert("Sistem hatası: " + err); }
 }
 
-// 2. ÇİZİM FONKSİYONLARI
-function setupDrawing() {
-    drawCanvas.width = window.innerWidth;
-    drawCanvas.height = window.innerHeight;
-
-    drawCanvas.addEventListener('touchstart', (e) => {
-        if (isLocked) return;
-        isDrawing = true;
-        rawPoints = [];
-        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    });
-
-    drawCanvas.addEventListener('touchmove', (e) => {
-        if (!isDrawing) return;
-        const x = e.touches[0].clientX;
-        const y = e.touches[0].clientY;
-        rawPoints.push({x, y});
-        
-        dCtx.strokeStyle = '#e74c3c';
-        dCtx.lineWidth = 4;
-        dCtx.lineJoin = 'round';
-        if (rawPoints.length > 1) {
-            dCtx.beginPath();
-            dCtx.moveTo(rawPoints[rawPoints.length-2].x, rawPoints[rawPoints.length-2].y);
-            dCtx.lineTo(x, y);
-            dCtx.stroke();
-        }
-    });
-
-    drawCanvas.addEventListener('touchend', () => {
-        isDrawing = false;
-        if (rawPoints.length > 10) {
-            calculatePathPoints();
-            lockBtn.style.display = 'block';
-            status.innerText = "ADIM 3: Çizgi tamamsa 'KİLİTLE'ye bas.";
-        }
-    });
-}
-
-function calculatePathPoints() {
-    pathPoints = [];
-    const stepCount = 50; // Çizgiyi 50 noktaya bölüyoruz
-    for (let i = 0; i < stepCount; i++) {
-        const idx = Math.floor((i / (stepCount - 1)) * (rawPoints.length - 1));
-        pathPoints.push(rawPoints[idx]);
-    }
-
-    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    pathPoints.forEach((p, i) => {
-        dCtx.fillStyle = i === 0 ? '#3498db' : '#f1c40f';
-        dCtx.beginPath();
-        dCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-        dCtx.fill();
-    });
-}
-
-// 3. ANALİZ DÖNGÜSÜ
 function updateLoop() {
-    if (video.readyState === video.HAVE_ENOUGH_DATA && isLocked) {
-        let activePoints = 0;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        debugCanvas.width = 160; // Düşük çözünürlüklü analiz = Yüksek hız
+        debugCanvas.height = 120;
         
-        // Gizli analiz canvası üzerinden pikselleri tara
-        const analysisCanvas = document.createElement('canvas');
-        analysisCanvas.width = video.videoWidth;
-        analysisCanvas.height = video.videoHeight;
-        const aCtx = analysisCanvas.getContext('2d', {alpha: false});
-        aCtx.drawImage(video, 0, 0);
+        // Sadece RPM barının olduğu sağ tarafı analiz et
+        dCtx.drawImage(video, video.videoWidth * 0.6, video.videoHeight * 0.2, video.videoWidth * 0.35, video.videoHeight * 0.6, 0, 0, 160, 120);
+        
+        const frame = dCtx.getImageData(0, 0, 160, 120);
+        const data = frame.data;
+        let highestActivePixelY = 120;
 
-        pathPoints.forEach((p, index) => {
-            const vx = (p.x / window.innerWidth) * video.videoWidth;
-            const vy = (p.y / window.innerHeight) * video.videoHeight;
-            const pixel = aCtx.getImageData(vx, vy, 1, 1).data;
-            
-            // BMW Kırmızısı Takibi: Kırmızı kanal baskın mı?
-            if (pixel[0] > 145 && pixel[0] > pixel[1] * 1.6) {
-                activePoints = index + 1;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            // BMW'nin aktif bar rengini (parlak beyaz/turuncu/kırmızı) algıla
+            if (r > 180 && g > 120) { 
+                const y = Math.floor((i / 4) / 160);
+                if (y < highestActivePixelY) highestActivePixelY = y;
             }
-        });
+        }
 
-        const rpm = activePoints / 50;
-        updateAudio(rpm);
-        status.innerText = `BMW 4.20i | RPM: %${Math.round(rpm * 100)}`;
+        // Doluluk oranını hesapla (Matematiksel normalizasyon)
+        let rpmTarget = 1 - (highestActivePixelY / 120);
+        rpmTarget = Math.max(0, Math.min(1, rpmTarget * 1.2)); // Kalibrasyon çarpanı
+
+        smoothedRpm += (rpmTarget - smoothedRpm) * 0.2; // Yumuşatma
+        
+        applyAudio(smoothedRpm);
+        rpmText.innerText = `%${Math.round(smoothedRpm * 100)} RPM`;
     }
     requestAnimationFrame(updateLoop);
 }
 
-function updateAudio(val) {
+function applyAudio(val) {
     const t = audioCtx.currentTime;
     
-    // Pop & Bang (Ani devir düşüşünde egzoz patlaması)
-    if (lastRpmValue - val > 0.14) {
+    // Pop & Bang (Vites Geçişi Algılama)
+    if (lastRpm - val > 0.12) {
+        gainNode.gain.cancelScheduledValues(t);
         gainNode.gain.setValueAtTime(1.5, t);
-        gainNode.gain.exponentialRampToValueAtTime(0.3 + (val * 0.7), t + 0.12);
+        gainNode.gain.exponentialRampToValueAtTime(0.3 + (val * 0.7), t + 0.15);
     }
-    lastRpmValue = val;
+    lastRpm = val;
 
+    // Pitch: $$PlaybackRate = 0.8 + (RPM \times 3.4)$$
     source.playbackRate.setTargetAtTime(0.8 + (val * 3.4), t, 0.02);
-    if (gainNode.gain.value < 1.2) {
+    if (gainNode.gain.value < 1.1) {
         gainNode.gain.setTargetAtTime(0.3 + (val * 0.7), t, 0.02);
     }
-    filter.frequency.setTargetAtTime(1200 + (val * 18000), t, 0.02);
+    filter.frequency.setTargetAtTime(1000 + (val * 18000), t, 0.02);
 }
 
-startBtn.addEventListener('click', () => {
-    initEngine();
-});
-
-lockBtn.addEventListener('click', () => {
-    isLocked = true;
-    lockBtn.style.display = 'none';
-    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    updateLoop();
-});
+startBtn.addEventListener('click', initEngine);
 </script>
 </body>
 </html>
