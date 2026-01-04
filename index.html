@@ -57,7 +57,7 @@ async function initSystem() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     
     try {
-        const response = await fetch('motor_sesi.WAV');
+        const response = await fetch('motor_sesi.wav');
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
