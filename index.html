@@ -3,159 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Natural-Sync</title>
+    <title>BMW 4.20i Organic-Dual Sync</title>
     <style>
-        body { background: #050505; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100vh; padding: 20px; box-sizing: border-box; }
+        body { background: #080808; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100vh; padding: 15px; box-sizing: border-box; }
         
-        /* Telemetri */
-        .telemetry { width: 100%; background: rgba(255, 255, 255, 0.03); border: 1px solid #333; padding: 12px; border-radius: 15px; text-align: center; }
-        .angle-val { font-size: 2.8rem; font-weight: 900; color: #e74c3c; font-family: monospace; line-height: 1; }
-        .angle-label { font-size: 9px; color: #666; letter-spacing: 2px; margin-top: 5px; }
+        /* Üst Bilgi */
+        .telemetry-header { width: 100%; display: flex; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 12px 20px; border-radius: 15px; border: 1px solid #222; }
+        .angle-data { font-size: 2rem; font-weight: 900; color: #e74c3c; font-family: monospace; }
+        .label-sm { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
 
-        /* RPM */
-        .rpm-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .rpm-val { font-size: 7.5rem; font-weight: 900; color: #fff; line-height: 0.8; }
-        .unit { color: #e74c3c; font-weight: bold; font-size: 14px; margin-top: 10px; }
+        /* Ana Gösterge */
+        .gauge-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .rpm-main { font-size: 7.5rem; font-weight: 900; color: #fff; line-height: 0.8; }
+        .rpm-sub { color: #e74c3c; font-weight: bold; font-size: 14px; margin-top: 15px; letter-spacing: 5px; }
 
-        /* Ayarlar */
-        .controls { width: 100%; background: #111; padding: 20px; border-radius: 20px; border: 1px solid #222; }
-        .slider-wrap { margin-bottom: 15px; }
-        label { display: flex; justify-content: space-between; font-size: 10px; color: #777; margin-bottom: 5px; }
-        input[type=range] { width: 100%; accent-color: #e74c3c; }
+        /* Kontrol Merkezi */
+        .control-hub { width: 100%; background: #121212; padding: 18px; border-radius: 25px; border: 1px solid #252525; }
         
-        #log { font-family: monospace; font-size: 10px; color: #00ff00; height: 15px; overflow: hidden; margin-top: 10px; }
-        button { width: 100%; padding: 20px; border-radius: 50px; border: none; font-weight: bold; font-size: 1.2rem; background: #fff; color: #000; cursor: pointer; }
+        /* Ses Modu Seçici */
+        .sound-toggle { display: flex; gap: 8px; margin-bottom: 18px; }
+        .mode-btn { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: #666; cursor: pointer; font-size: 11px; font-weight: bold; transition: 0.3s; }
+        .mode-btn.active { background: #e74c3c; color: #fff; border-color: #e74c3c; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3); }
+
+        .config-row { margin-bottom: 12px; }
+        .config-label { display: flex; justify-content: space-between; font-size: 10px; color: #555; margin-bottom: 5px; }
+        input[type=range] { width: 100%; accent-color: #e74c3c; cursor: pointer; height: 6px; }
+        
+        #log { font-family: monospace; font-size: 9px; color: #00ff00; height: 12px; margin-top: 10px; border-top: 1px solid #1a1a1a; padding-top: 8px; opacity: 0.6; }
+        .power-btn { width: 100%; padding: 20px; border-radius: 50px; border: none; font-weight: bold; font-size: 1.2rem; background: #fff; color: #000; cursor: pointer; transition: 0.2s; }
+        .power-btn:active { transform: scale(0.96); }
     </style>
 </head>
 <body>
 
-    <div class="telemetry">
-        <div class="angle-val" id="liveAngle">0.0°</div>
-        <div class="angle-label">CANLI PEDAL VERİSİ</div>
+    <div class="telemetry-header">
+        <div><span class="label-sm">Pedal Açısı</span><br><span class="angle-data" id="angleTxt">0.0°</span></div>
+        <div style="text-align: right;"><span class="label-sm">Sistem</span><br><span id="sysStatus" style="color:#e74c3c; font-weight:bold;">STANDBY</span></div>
     </div>
 
-    <div class="rpm-box">
-        <div class="rpm-val" id="rpmDisp">0</div>
-        <div class="unit">RPM x1000</div>
+    <div class="gauge-area">
+        <div class="rpm-main" id="rpmNum">0</div>
+        <div class="rpm-sub">RPM x1000</div>
     </div>
 
-    <div class="controls">
-        <div class="slider-wrap">
-            <label><span>MIN (RÖLANTİ):</span> <span id="minL">115°</span></label>
-            <input type="range" id="minA" min="0" max="180" value="115">
+    <div class="control-hub">
+        <div class="sound-toggle">
+            <button class="mode-btn active" onclick="changeEngine('motor_sesi.WAV', this)">V1: RAW MECHANICAL</button>
+            <button class="mode-btn" onclick="changeEngine('motor_sesi_v2.MP3', this)">V2: ORGANIC TURBO</button>
         </div>
-        <div class="slider-wrap">
-            <label><span>MAX (TAM GAZ):</span> <span id="maxL">180°</span></label>
-            <input type="range" id="maxA" min="0" max="360" value="180">
+
+        <div class="config-row">
+            <div class="config-label"><span>MIN (RÖLANTİ):</span> <span id="minVal">115°</span></div>
+            <input type="range" id="minIn" min="0" max="180" value="115">
+        </div>
+        <div class="config-row">
+            <div class="config-label"><span>MAX (TAM GAZ):</span> <span id="maxVal">180°</span></div>
+            <input type="range" id="maxIn" min="0" max="360" value="180">
         </div>
         
-        <div id="log">> Sistem Boran İçin Hazır.</div>
-        <button id="startBtn">SİSTEMİ BAŞLAT</button>
+        <div id="log">> BMW 4.20i Hazır...</div>
+        <button class="power-btn" id="startAction">SİSTEMİ ATEŞLE</button>
     </div>
 
 <script>
-let audioCtx, source, gainNode, filter, distNode;
-let smoothedRpm = 0, lastRpm = 0;
+let audioCtx, source, gainNode, filter, saturator;
+let rpmSmooth = 0, rpmLast = 0;
+let activeFile = 'motor_sesi.WAV'; //
 
-const minIn = document.getElementById('minA');
-const maxIn = document.getElementById('maxA');
-const rpmDisp = document.getElementById('rpmDisp');
-const angleDisp = document.getElementById('liveAngle');
+const minIn = document.getElementById('minIn');
+const maxIn = document.getElementById('maxIn');
+const rpmNum = document.getElementById('rpmNum');
+const angleTxt = document.getElementById('angleTxt');
 const log = document.getElementById('log');
+const status = document.getElementById('sysStatus');
 
-// Doygunluk (Saturation) eğrisi oluşturma - Mekanik hissi azaltır
-function createDistortionCurve(amount) {
-    let n_samples = 44100, curve = new Float32Array(n_samples), i = 0, x;
-    for ( ; i < n_samples; ++i ) {
-        x = i * 2 / n_samples - 1;
+// Ses Dosyası Değiştirme
+function changeEngine(file, el) {
+    activeFile = file;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    log.innerText = `> MOD: ${file}`;
+    if (audioCtx) startLogic(true);
+}
+
+// Organik "Analog" Doygunluk Eğrisi
+function getSaturationCurve(amount) {
+    let n = 44100, curve = new Float32Array(n), x;
+    for (let i = 0 ; i < n; ++i ) {
+        x = i * 2 / n - 1;
         curve[i] = (3 + amount) * x * 20 * (Math.PI / 180) / (Math.PI + amount * Math.abs(x));
     }
     return curve;
 }
 
-async function start() {
+async function startLogic(isReload = false) {
     try {
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+        if (!isReload && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            await DeviceOrientationEvent.requestPermission();
+        }
+        
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
         await audioCtx.resume();
 
-        log.innerText = "> MP3 YÜKLENİYOR...";
-        // Yeni MP3 dosyasını çekiyoruz
-        const response = await fetch('./motor_sesi_v2.MP3?v=' + Date.now());
-        if (!response.ok) throw new Error("motor_sesi_v2.MP3 bulunamadı!");
+        if (source) source.stop();
+
+        log.innerText = `> ${activeFile} OPTİMİZE EDİLİYOR...`;
+        const res = await fetch(`./${activeFile}?v=` + Date.now());
+        if (!res.ok) throw new Error(`${activeFile} bulunamadı!`);
         
-        const audioBuffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+        const buffer = await audioCtx.decodeAudioData(await res.arrayBuffer());
         
         source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
+        source.buffer = buffer;
         source.loop = true;
         
-        // Ses Zinciri: Source -> Saturation -> Filter -> Gain -> Destination
-        distNode = audioCtx.createWaveShaper();
-        distNode.curve = createDistortionCurve(40); // Hafif analog sıcaklık
-        distNode.oversample = '4x';
-
+        // --- ORGANİK SES ZİNCİRİ ---
+        saturator = audioCtx.createWaveShaper();
+        saturator.curve = getSaturationCurve(activeFile.includes('MP3') ? 50 : 30);
+        
         filter = audioCtx.createBiquadFilter();
         filter.type = "lowpass";
         
         gainNode = audioCtx.createGain();
         
-        source.connect(distNode);
-        distNode.connect(filter);
+        source.connect(saturator);
+        saturator.connect(filter);
         filter.connect(gainNode);
         gainNode.connect(audioCtx.destination);
         
         source.start(0);
-        document.getElementById('startBtn').style.display = 'none';
-        log.innerText = "> SİSTEM AKTİF.";
+        document.getElementById('startAction').style.display = 'none';
+        status.innerText = "ONLINE";
+        log.innerText = "> SES ORGANİZE EDİLDİ. KEYİFLİ SÜRÜŞLER.";
 
-        window.addEventListener('deviceorientation', (e) => {
-            let current = e.beta;
-            angleDisp.innerText = current.toFixed(1) + "°";
-            
-            let minV = parseFloat(minIn.value);
-            let maxV = parseFloat(maxIn.value);
-            document.getElementById('minL').innerText = minV + "°";
-            document.getElementById('maxL').innerText = maxV + "°";
-
-            let target = (current - minV) / (maxV - minV);
-            target = Math.max(0, Math.min(1, target));
-
-            // ASİMETRİK TEPKİ: Hızlı gaz, ağır düşüş
-            if (target > smoothedRpm) {
-                smoothedRpm += (target - smoothedRpm) * 0.25; 
-            } else {
-                smoothedRpm += (target - smoothedRpm) * 0.04; 
-            }
-
-            const t = audioCtx.currentTime;
-
-            // Pitch Jitter (Doğal dalgalanma)
-            const jitter = (Math.random() - 0.5) * 0.005;
-            source.playbackRate.setTargetAtTime(0.8 + (smoothedRpm * 3.4) + jitter, t, 0.02);
-            
-            // Pop & Bang Algılayıcı
-            if (lastRpm - smoothedRpm > 0.08) {
-                gainNode.gain.cancelScheduledValues(t);
-                gainNode.gain.setValueAtTime(1.5, t);
-                gainNode.gain.exponentialRampToValueAtTime(0.3 + (smoothedRpm * 0.7), t + 0.15);
-            }
-            lastRpm = smoothedRpm;
-
-            if (gainNode.gain.value < 1.1) {
-                gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
-            }
-            filter.frequency.setTargetAtTime(800 + (smoothedRpm * 18000), t, 0.02);
-            
-            rpmDisp.innerText = Math.floor(smoothedRpm * 7);
-        });
+        if (!isReload) initSensor();
 
     } catch (err) {
         log.innerText = "HATA: " + err.message;
+        status.innerText = "ERROR";
     }
 }
 
-document.getElementById('startBtn').addEventListener('click', start);
+function initSensor() {
+    window.addEventListener('deviceorientation', (e) => {
+        let angle = e.beta; 
+        angleTxt.innerText = angle.toFixed(1) + "°";
+        
+        let minV = parseFloat(minIn.value);
+        let maxV = parseFloat(maxIn.value);
+        document.getElementById('minVal').innerText = minV + "°";
+        document.getElementById('maxVal').innerText = maxV + "°";
+
+        let target = (angle - minV) / (maxV - minV);
+        target = Math.max(0, Math.min(1, target));
+
+        // ASİMETRİK TEPKİ: Gaza basış %22 hızla, çekiş %3.8 hızla (Gerçekçi süzülme)
+        if (target > rpmSmooth) {
+            rpmSmooth += (target - rpmSmooth) * 0.22; 
+        } else {
+            rpmSmooth += (target - rpmSmooth) * 0.038; 
+        }
+
+        const t = audioCtx.currentTime;
+        
+        // Doğal Motor Titreşimi (Jitter)
+        const jitter = (Math.random() - 0.5) * 0.006; 
+        source.playbackRate.setTargetAtTime(0.8 + (rpmSmooth * 3.4) + jitter, t, 0.02);
+        
+        // Pop & Bang (Ayağı gazdan çekince patlama simülasyonu)
+        if (rpmLast - rpmSmooth > 0.075) {
+            gainNode.gain.cancelScheduledValues(t);
+            gainNode.gain.setValueAtTime(1.5, t); 
+            gainNode.gain.exponentialRampToValueAtTime(0.3 + (rpmSmooth * 0.7), t + 0.15);
+        }
+        rpmLast = rpmSmooth;
+
+        if (gainNode.gain.value < 1.2) {
+            gainNode.gain.setTargetAtTime(0.3 + (rpmSmooth * 0.7), t, 0.02);
+        }
+        
+        // Devir yükseldikçe sesi parlatan filtre
+        filter.frequency.setTargetAtTime(900 + (rpmSmooth * 17000), t, 0.02);
+        rpmNum.innerText = Math.floor(rpmSmooth * 7);
+    });
+}
+
+document.getElementById('startAction').addEventListener('click', () => startLogic(false));
 </script>
 </body>
 </html>
