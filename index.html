@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BMW 4.20i Stealth Sync</title>
+    <style>
+        body { background: #000; margin: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        
+        video { width: 100vw; height: 100vh; object-fit: cover; }
+
+        #startBtn { 
+            position: absolute; z-index: 100; padding: 25px 50px; 
+            background: #fff; color: #000; font-weight: bold; border: none; 
+            border-radius: 5px; cursor: pointer; font-size: 1.2rem;
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+        }
+
+        .status { 
+            position: absolute; top: 20px; right: 20px; 
+            color: rgba(255,255,255,0.5); font-family: monospace; font-size: 12px;
+        }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <button id="startBtn">SİSTEMİ BAŞLAT</button>
+    <div class="status" id="fps">SYNC: AKTİF</div>
+    <video id="liveCam" autoplay muted playsinline></video>
+    <canvas id="fastCanvas" width="1" height="1"></canvas>
+
+<script>
+let audioCtx, source, gainNode, filter;
+const video = document.getElementById('liveCam');
+const canvas = document.getElementById('fastCanvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
+const startBtn = document.getElementById('startBtn');
+
+async function initSystem() {
+    // 1. KAMERA: En yüksek kare hızını zorla
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: "environment",
+                width: { ideal: 640 }, // Hız için çözünürlüğü makul tuttuk
+                frameRate: { ideal: 60 } 
+            } 
+        });
+        video.srcObject = stream;
+    } catch (err) {
+        alert("Kamera hatası!");
+        return;
+    }
+
+    // 2. SES: Interactive mode (0ms Gecikme hedefi)
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    
+    try {
+        const response = await fetch('motor_sesi.wav');
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+        source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.loop = true;
+
+        filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass"; // Sesin tınısını devirle değiştirir
+        gainNode = audioCtx.createGain();
+
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        source.start(0);
+        startBtn.style.display = 'none';
+        
+        updateLoop();
+    } catch (err) {
+        alert("Ses yüklenemedi!");
+    }
+}
+
+function updateLoop() {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        // Tam merkez piksellerini oku
+        const x = video.videoWidth / 2;
+        const y = video.videoHeight / 2;
+        
+        ctx.drawImage(video, x, y, 1, 1, 0, 0, 1, 1);
+        const p = ctx.getImageData(0, 0, 1, 1).data;
+        
+        // Hız için parlaklık hesabı yerine direkt Kırmızı kanalını kullanabiliriz (pixel[0])
+        // BMW kadranları genelde kırmızı/turuncu olduğu için daha hassas olur
+        let intensity = (p[0] + p[1] + p[2]) / 3;
+        
+        // Terslik durumuna göre burayı (intensity / 255) yapabilirsin.
+        let rpm = 1 - (intensity / 255); 
+        rpm = Math.max(0, Math.min(1, rpm));
+
+        // Ses Parametreleri (Gecikmesiz setTargetAtTime)
+        const t = audioCtx.currentTime;
+        source.playbackRate.setTargetAtTime(0.8 + (rpm * 3.5), t, 0.015);
+        gainNode.gain.setTargetAtTime(0.3 + (rpm * 0.7), t, 0.015);
+        filter.frequency.setTargetAtTime(2000 + (rpm * 15000), t, 0.015);
+    }
+    requestAnimationFrame(updateLoop);
+}
+
+startBtn.addEventListener('click', () => {
+    initSystem();
+    // Tam ekran modu (Opsiyonel: Daha iyi bir deneyim için)
+    if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen();
+    }
+});
+</script>
+</body>
+</html>
