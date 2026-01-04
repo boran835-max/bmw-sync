@@ -3,134 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Pedal-Sync Pro</title>
+    <title>BMW 4.20i Pedal Debug</title>
     <style>
-        body { background: #000; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        
-        /* Kadran Tasarımı */
-        .gauge { width: 280px; height: 280px; border: 8px solid #222; border-top-color: #e74c3c; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform 0.1s; box-shadow: 0 0 50px rgba(231, 76, 60, 0.2); }
-        .rpm-num { font-size: 5rem; font-weight: 900; color: #e74c3c; line-height: 1; }
-        .unit { font-size: 1.2rem; color: #888; letter-spacing: 2px; }
-
-        /* Buton ve Log Paneli */
-        .controls { position: absolute; bottom: 40px; display: flex; flex-direction: column; align-items: center; gap: 15px; width: 90%; }
-        button { padding: 20px 60px; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; font-size: 1.2rem; background: #fff; color: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        
-        #logPanel { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; font-family: monospace; font-size: 11px; width: 100%; max-width: 300px; color: #00ff00; border: 1px solid #333; }
+        body { background: #050505; margin: 0; overflow: hidden; font-family: 'Courier New', monospace; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        .monitor { width: 90%; max-width: 400px; background: #111; border: 1px solid #333; padding: 20px; border-radius: 10px; box-shadow: 0 0 30px rgba(231, 76, 60, 0.2); }
+        .log-line { font-size: 12px; margin: 5px 0; color: #00ff00; }
+        .error { color: #ff3333 !important; }
+        #startBtn { margin-top: 20px; padding: 20px 40px; border-radius: 50px; border: none; font-weight: bold; background: #e74c3c; color: #fff; cursor: pointer; width: 100%; font-size: 16px; }
+        .rpm-display { font-size: 3rem; font-weight: bold; text-align: center; margin-bottom: 10px; color: #e74c3c; }
     </style>
 </head>
 <body>
 
-    <div class="gauge" id="visualGauge">
-        <div class="rpm-num" id="rpmValue">0</div>
-        <div class="unit">1/min x1000</div>
-    </div>
-
-    <div class="controls">
-        <div id="logPanel">SİSTEM: BAŞLATILMAYI BEKLİYOR...</div>
-        <button id="startBtn">SENSÖRÜ VE SESİ BAŞLAT</button>
+    <div class="monitor">
+        <div class="rpm-display" id="rpmText">0 RPM</div>
+        <div id="logContainer">
+            <div class="log-line">> SİSTEM: Boran Güngör için hazır.</div>
+            <div class="log-line">> ARAÇ: BMW 4.20i Pedal Sensörü Modu.</div>
+        </div>
+        <button id="startBtn">SİSTEMİ VE SESİ BAŞLAT</button>
     </div>
 
 <script>
 let audioCtx, source, gainNode, filter;
-let baseAngle = null; 
-let smoothedRpm = 0, lastRpm = 0;
+let baseAngle = null, smoothedRpm = 0;
+const logContainer = document.getElementById('logContainer');
+const rpmText = document.getElementById('rpmText');
 
-const rpmValue = document.getElementById('rpmValue');
-const visualGauge = document.getElementById('visualGauge');
-const log = document.getElementById('logPanel');
-const startBtn = document.getElementById('startBtn');
+function addLog(msg, isError = false) {
+    const div = document.createElement('div');
+    div.className = isError ? 'log-line error' : 'log-line';
+    div.innerText = `> ${msg}`;
+    logContainer.appendChild(div);
+    if (logContainer.childNodes.length > 8) logContainer.removeChild(logContainer.firstChild);
+}
 
-async function startProject() {
-    log.innerHTML = "DURUM: BAŞLATILIYOR...<br>";
+async function init() {
+    addLog("BAŞLATILIYOR...");
     
     try {
-        // 1. SENSÖR İZNİ (iOS İÇİN ŞART)
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // 1. Sensör İzni
+        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
             const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission !== 'granted') throw new Error("Sensör izni verilmedi.");
-            log.innerHTML += "SENSÖR: İZİN ALINDI ✓<br>";
+            addLog(`SENSÖR İZNİ: ${permission}`);
+            if (permission !== 'granted') throw new Error("Sensör izni reddedildi.");
         }
 
-        // 2. SES MOTORU (AUDIO CONTEXT)
+        // 2. Audio Context
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-        if (audioCtx.state === 'suspended') await audioCtx.resume();
-        log.innerHTML += "SES MOTORU: AKTİF ✓<br>";
+        await audioCtx.resume();
+        addLog("SES MOTORU: AKTİF");
 
-        // 3. DOSYA YÜKLEME (motor_sesi.WAV)
-        log.innerHTML += "DOSYA: YÜKLENİYOR...<br>";
+        // 3. Dosya Çekme (Hata Ayıklamalı)
+        addLog("DOSYA ÇEKİLİYOR: motor_sesi.WAV...");
         const response = await fetch('./motor_sesi.WAV?v=' + Date.now());
         
-        if (!response.ok) {
-            throw new Error(`Dosya bulunamadı! (HTTP ${response.status})`);
-        }
+        addLog(`SUNUCU YANITI: ${response.status} ${response.statusText}`);
         
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        log.innerHTML += "DOSYA: YÜKLENDİ ✓<br>";
+        if (!response.ok) {
+            throw new Error(`Dosya bulunamadı! Lütfen GitHub'da ismin 'motor_sesi.WAV' olduğunu kontrol edin.`);
+        }
 
-        // 4. SES ZİNCİRİ KURULUMU
+        const arrayBuffer = await response.arrayBuffer();
+        addLog(`VERİ ALINDI: ${Math.round(arrayBuffer.byteLength / 1024)} KB`);
+        
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        addLog("SES ÇÖZÜLDÜ: HAZIR ✓");
+
+        // 4. Ses Kurulumu
         source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.loop = true;
-        
-        filter = audioCtx.createBiquadFilter(); filter.type = "lowpass";
         gainNode = audioCtx.createGain();
+        filter = audioCtx.createBiquadFilter();
         
-        source.connect(filter);
-        filter.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        source.connect(filter); filter.connect(gainNode); gainNode.connect(audioCtx.destination);
         source.start(0);
 
-        startBtn.style.display = 'none';
-        log.innerHTML += "SİSTEM: ÇALIŞIYOR! GAZA BASIN.";
-        
-        // 5. PEDAL HAREKETİNİ DİNLE
-        window.addEventListener('deviceorientation', processPedal);
+        document.getElementById('startBtn').style.display = 'none';
+        window.addEventListener('deviceorientation', handlePedal);
+        addLog("SİSTEM ÇALIŞIYOR. PEDALİ EĞİN.");
+
     } catch (err) {
-        log.innerHTML += `<span style="color:red">HATA: ${err.message}</span>`;
-        console.error(err);
+        addLog(`HATA: ${err.message}`, true);
     }
 }
 
-function processPedal(e) {
-    // Telefonun öne-arkaya eğimini (beta) kullanıyoruz
-    let currentAngle = e.beta;
-
-    // İlk açıyı rölanti (0) olarak kalibre et
+function handlePedal(e) {
+    let currentAngle = e.beta; // Telefonun öne/arkaya eğimi
     if (baseAngle === null) baseAngle = currentAngle;
 
-    // Pedal hareketi: 25 derecelik eğim tam gaz kabul edilir
     let diff = currentAngle - baseAngle;
-    let rpmTarget = Math.max(0, Math.min(1, diff / 25)); 
-
-    // Yumuşatma (Daha pürüzsüz geçişler için)
-    smoothedRpm += (rpmTarget - smoothedRpm) * 0.18;
+    let rpmTarget = Math.max(0, Math.min(1, diff / 25)); // 25 derece = Tam gaz
     
-    // Ses Parametrelerini Güncelle
+    smoothedRpm += (rpmTarget - smoothedRpm) * 0.15;
+    
     const t = audioCtx.currentTime;
-    
-    // Pop & Bang (Ayağı gazdan çekince patlama)
-    if (lastRpm - smoothedRpm > 0.14) {
-        gainNode.gain.cancelScheduledValues(t);
-        gainNode.gain.setValueAtTime(1.6, t);
-        gainNode.gain.exponentialRampToValueAtTime(0.3 + (smoothedRpm * 0.7), t + 0.12);
-    }
-    lastRpm = smoothedRpm;
-
-    // Perde (Pitch) ve Filtre Ayarı
     source.playbackRate.setTargetAtTime(0.8 + (smoothedRpm * 3.4), t, 0.02);
-    if (gainNode.gain.value < 1.2) {
-        gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
-    }
-    filter.frequency.setTargetAtTime(1000 + (smoothedRpm * 19000), t, 0.02);
+    gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
     
-    // Görsel Güncelleme
-    rpmValue.innerText = Math.floor(smoothedRpm * 7); // 0-7 bin devir arası
-    visualGauge.style.transform = `scale(${1 + (smoothedRpm * 0.15)})`;
+    rpmText.innerText = `${Math.floor(smoothedRpm * 7000)} RPM`;
 }
 
-startBtn.addEventListener('click', startProject);
+document.getElementById('startBtn').addEventListener('click', init);
 </script>
 </body>
 </html>
