@@ -3,117 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BMW 4.20i Pedal-Tilt Pro</title>
+    <title>BMW 4.20i Pedal-Sync Pro</title>
     <style>
-        body { background: #0a0a0a; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        .gauge-container { width: 250px; height: 250px; border: 10px solid #222; border-top-color: #e74c3c; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.1s; }
-        .rpm-value { font-size: 4rem; font-weight: 900; color: #e74c3c; }
-        .ui-box { margin-top: 30px; text-align: center; }
-        button { padding: 20px 50px; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; font-size: 1.2rem; background: #fff; color: #000; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
-        #status { margin-top: 15px; font-family: monospace; color: #888; font-size: 12px; }
+        body { background: #000; margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        
+        /* Kadran Tasarımı */
+        .gauge { width: 280px; height: 280px; border: 8px solid #222; border-top-color: #e74c3c; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform 0.1s; box-shadow: 0 0 50px rgba(231, 76, 60, 0.2); }
+        .rpm-num { font-size: 5rem; font-weight: 900; color: #e74c3c; line-height: 1; }
+        .unit { font-size: 1.2rem; color: #888; letter-spacing: 2px; }
+
+        /* Buton ve Log Paneli */
+        .controls { position: absolute; bottom: 40px; display: flex; flex-direction: column; align-items: center; gap: 15px; width: 90%; }
+        button { padding: 20px 60px; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; font-size: 1.2rem; background: #fff; color: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        
+        #logPanel { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; font-family: monospace; font-size: 11px; width: 100%; max-width: 300px; color: #00ff00; border: 1px solid #333; }
     </style>
 </head>
 <body>
 
-    <div class="gauge-container" id="visualGauge">
-        <div class="rpm-value" id="rpmText">0</div>
+    <div class="gauge" id="visualGauge">
+        <div class="rpm-num" id="rpmValue">0</div>
+        <div class="unit">1/min x1000</div>
     </div>
 
-    <div class="ui-box">
+    <div class="controls">
+        <div id="logPanel">SİSTEM: BAŞLATILMAYI BEKLİYOR...</div>
         <button id="startBtn">SENSÖRÜ VE SESİ BAŞLAT</button>
-        <div id="status">BMW 4.20i | PEDAL SENSÖRÜ HAZIR</div>
     </div>
 
 <script>
 let audioCtx, source, gainNode, filter;
-let baseAngle = null; // Rölanti açısı
-let smoothedRpm = 0;
-let lastRpm = 0;
+let baseAngle = null; 
+let smoothedRpm = 0, lastRpm = 0;
 
-const rpmText = document.getElementById('rpmText');
+const rpmValue = document.getElementById('rpmValue');
 const visualGauge = document.getElementById('visualGauge');
-const status = document.getElementById('status');
+const log = document.getElementById('logPanel');
 const startBtn = document.getElementById('startBtn');
 
-async function initPedalSystem() {
+async function startProject() {
+    log.innerHTML = "DURUM: BAŞLATILIYOR...<br>";
+    
     try {
-        // 1. Sensör İzni (iOS 13+ için kritik)
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // 1. SENSÖR İZNİ (iOS İÇİN ŞART)
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
             const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission !== 'granted') throw new Error("Sensör izni reddedildi.");
+            if (permission !== 'granted') throw new Error("Sensör izni verilmedi.");
+            log.innerHTML += "SENSÖR: İZİN ALINDI ✓<br>";
         }
 
-        // 2. Ses Motorunu Başlat
+        // 2. SES MOTORU (AUDIO CONTEXT)
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-        await audioCtx.resume();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        log.innerHTML += "SES MOTORU: AKTİF ✓<br>";
 
-        // BMW 4.20i motor sesini çek
+        // 3. DOSYA YÜKLEME (motor_sesi.WAV)
+        log.innerHTML += "DOSYA: YÜKLENİYOR...<br>";
         const response = await fetch('./motor_sesi.WAV?v=' + Date.now());
-        if (!response.ok) throw new Error("Ses dosyası (WAV) bulunamadı.");
+        
+        if (!response.ok) {
+            throw new Error(`Dosya bulunamadı! (HTTP ${response.status})`);
+        }
         
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        log.innerHTML += "DOSYA: YÜKLENDİ ✓<br>";
 
+        // 4. SES ZİNCİRİ KURULUMU
         source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.loop = true;
         
         filter = audioCtx.createBiquadFilter(); filter.type = "lowpass";
         gainNode = audioCtx.createGain();
-        source.connect(filter); filter.connect(gainNode); gainNode.connect(audioCtx.destination);
+        
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
         source.start(0);
 
         startBtn.style.display = 'none';
-        status.innerText = "SİSTEM AKTİF: GAZA BASIN";
+        log.innerHTML += "SİSTEM: ÇALIŞIYOR! GAZA BASIN.";
         
-        // 3. Dinleyiciyi Başlat
-        window.addEventListener('deviceorientation', handlePedal);
+        // 5. PEDAL HAREKETİNİ DİNLE
+        window.addEventListener('deviceorientation', processPedal);
     } catch (err) {
-        status.innerHTML = `<span style="color:red">HATA: ${err.message}</span>`;
+        log.innerHTML += `<span style="color:red">HATA: ${err.message}</span>`;
+        console.error(err);
     }
 }
 
-function handlePedal(event) {
-    // Beta açısını (telefonun öne/arkaya eğimi) baz alıyoruz
-    let currentAngle = event.beta;
+function processPedal(e) {
+    // Telefonun öne-arkaya eğimini (beta) kullanıyoruz
+    let currentAngle = e.beta;
 
-    // İlk açıyı rölanti (0 RPM) olarak kalibre et
+    // İlk açıyı rölanti (0) olarak kalibre et
     if (baseAngle === null) baseAngle = currentAngle;
 
-    // Pedala ne kadar basıldığını hesapla (Örn: 30 derecelik eğim tam gaz kabul edilir)
+    // Pedal hareketi: 25 derecelik eğim tam gaz kabul edilir
     let diff = currentAngle - baseAngle;
-    let rpmTarget = Math.max(0, Math.min(1, diff / 30)); 
+    let rpmTarget = Math.max(0, Math.min(1, diff / 25)); 
 
-    // Yumuşatma (Hassas bir sürüş hissi için)
-    smoothedRpm += (rpmTarget - smoothedRpm) * 0.2;
+    // Yumuşatma (Daha pürüzsüz geçişler için)
+    smoothedRpm += (rpmTarget - smoothedRpm) * 0.18;
     
-    updateAudio(smoothedRpm);
-    
-    // UI Güncelleme
-    rpmText.innerText = Math.round(smoothedRpm * 7000);
-    visualGauge.style.transform = `scale(${1 + (smoothedRpm * 0.2)})`;
-    visualGauge.style.borderColor = smoothedRpm > 0.8 ? '#ff0000' : '#e74c3c';
-}
-
-function updateAudio(val) {
+    // Ses Parametrelerini Güncelle
     const t = audioCtx.currentTime;
     
-    // Vites Geçişi (Pop & Bang) - Ani pedal bırakmada tetiklenir
-    if (lastRpm - val > 0.15) {
+    // Pop & Bang (Ayağı gazdan çekince patlama)
+    if (lastRpm - smoothedRpm > 0.14) {
+        gainNode.gain.cancelScheduledValues(t);
         gainNode.gain.setValueAtTime(1.6, t);
-        gainNode.gain.exponentialRampToValueAtTime(0.3 + (val * 0.7), t + 0.1);
+        gainNode.gain.exponentialRampToValueAtTime(0.3 + (smoothedRpm * 0.7), t + 0.12);
     }
-    lastRpm = val;
+    lastRpm = smoothedRpm;
 
-    // Pitch: 0.8 (Rölanti) - 4.2 (Limit)
-    source.playbackRate.setTargetAtTime(0.8 + (val * 3.4), t, 0.015);
-    if (gainNode.gain.value < 1.3) {
-        gainNode.gain.setTargetAtTime(0.3 + (val * 0.7), t, 0.015);
+    // Perde (Pitch) ve Filtre Ayarı
+    source.playbackRate.setTargetAtTime(0.8 + (smoothedRpm * 3.4), t, 0.02);
+    if (gainNode.gain.value < 1.2) {
+        gainNode.gain.setTargetAtTime(0.3 + (smoothedRpm * 0.7), t, 0.02);
     }
-    filter.frequency.setTargetAtTime(1000 + (val * 19000), t, 0.015);
+    filter.frequency.setTargetAtTime(1000 + (smoothedRpm * 19000), t, 0.02);
+    
+    // Görsel Güncelleme
+    rpmValue.innerText = Math.floor(smoothedRpm * 7); // 0-7 bin devir arası
+    visualGauge.style.transform = `scale(${1 + (smoothedRpm * 0.15)})`;
 }
 
-startBtn.addEventListener('click', initPedalSystem);
+startBtn.addEventListener('click', startProject);
 </script>
 </body>
 </html>
